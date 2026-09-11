@@ -14,6 +14,9 @@ import {
 export const CRITIC_PURPOSE =
   "Reviews the synthesized mind map against the original problem and the other agents' findings: identifies gaps, weak or duplicate branches, and recommends concrete changes.";
 
+export const POST_REFINEMENT_CRITIC_PURPOSE =
+  "Re-reviews the map after refinement, using the exact same review process as the first pass, so the human sees an honest, up-to-date assessment instead of trusting an unreviewed edit.";
+
 export const REFINEMENT_PURPOSE =
   "Takes the human's feedback and produces a revised mind map that visibly incorporates it, while preserving what already worked.";
 

@@ -91,6 +91,18 @@ export type ContextAnalysis = z.infer<typeof ContextAnalysisSchema>;
 
 // ---------- Agent 3: Exploration & Alternatives ----------
 
+export const ExplorationPerspectiveSchema = z.object({
+  lens: z
+    .string()
+    .describe(
+      "short name for this distinct vantage point, e.g. 'End-user & accessibility', 'Stakeholder & business', 'Risk & ethics/governance'",
+    ),
+  findings: z
+    .array(z.string())
+    .describe("2-4 concrete findings genuinely specific to this lens, not restated from another lens"),
+});
+export type ExplorationPerspective = z.infer<typeof ExplorationPerspectiveSchema>;
+
 export const ExplorationFindingsSchema = z.object({
   alternativePerspectives: z
     .array(z.string())
@@ -111,6 +123,17 @@ export const ExplorationFindingsSchema = z.object({
     .array(z.string())
     .default([])
     .describe("titles or URLs of sources consulted, if web search was used; empty if not"),
+  perspectives: z
+    .array(ExplorationPerspectiveSchema)
+    .min(2)
+    .max(4)
+    .describe(
+      "the SAME exploration findings above, additionally organized under 2-4 explicitly distinct named vantage points, so a human reader can see multiple genuine perspectives at a glance",
+    ),
+  usedWebSearch: z
+    .boolean()
+    .default(false)
+    .describe("true if this exploration was grounded in live web search results, false if it relied on the model's own knowledge because search was unavailable"),
 });
 export type ExplorationFindings = z.infer<typeof ExplorationFindingsSchema>;
 
@@ -207,6 +230,13 @@ export interface RefineSuccess {
   status: "success";
   mindMap: MindMap;
   changesSummary: string[];
+  /**
+   * The map is re-reviewed by the Critic agent immediately after refinement,
+   * so the human always sees an up-to-date assessment of the CURRENT map,
+   * not a stale pre-refinement critique. Subsequent refine requests must
+   * send this critique back as `previousCritique`, not the original one.
+   */
+  critique: Critique;
   trace: AgentTraceEntry[];
 }
 

@@ -15,6 +15,7 @@ import { synthesizeMindMap, ARCHITECT_PURPOSE, summarizeMindMap } from "./archit
 import {
   critiqueMindMap,
   CRITIC_PURPOSE,
+  POST_REFINEMENT_CRITIC_PURPOSE,
   summarizeCritique,
   refineMindMap,
   REFINEMENT_PURPOSE,
@@ -154,7 +155,7 @@ export async function runRefinementPipeline(body: RefineRequestBody): Promise<Re
     },
   ];
 
-  const step = await runStep(
+  const refineStep = await runStep(
     trace,
     "Refinement Agent",
     REFINEMENT_PURPOSE,
@@ -171,16 +172,40 @@ export async function runRefinementPipeline(body: RefineRequestBody): Promise<Re
       ),
     summarizeRefinement,
   );
-  if (!step.ok) return { status: "error", error: step.error, trace };
+  if (!refineStep.ok) return { status: "error", error: refineStep.error, trace };
+  const { mindMap, changesSummary } = refineStep.value;
+
+  // Re-run the Critic against the REFINED map (same agent, same function as
+  // the first pass - not a new agent). This is what closes the loop: the
+  // map the human actually walks away with gets reviewed too, not just the
+  // pre-refinement draft. The new critique is what the client must send
+  // back as `previousCritique` on any further refinement, so a second round
+  // never works off stale, pre-refinement findings.
+  const criticStep = await runStep(
+    trace,
+    "Critic",
+    POST_REFINEMENT_CRITIC_PURPOSE,
+    () =>
+      critiqueMindMap(
+        body.originalInput,
+        body.contextAnalysis,
+        body.exploration,
+        body.assumptionChallenge,
+        mindMap,
+      ),
+    summarizeCritique,
+  );
+  if (!criticStep.ok) return { status: "error", error: criticStep.error, trace };
+  const critique = criticStep.value;
 
   trace.push({
     agent: "Coordinator",
     purpose: "Manages the workflow.",
     status: "success",
-    summary: "Refined mind map ready for the human to review.",
+    summary: "Refined mind map re-reviewed. Ready for the human to refine further or finish.",
   });
 
-  return { status: "success", mindMap: step.value.mindMap, changesSummary: step.value.changesSummary, trace };
+  return { status: "success", mindMap, changesSummary, critique, trace };
 }
 
 // ---- helpers ----

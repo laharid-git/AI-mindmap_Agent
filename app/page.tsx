@@ -69,11 +69,19 @@ export default function Home() {
   const [feedback, setFeedback] = useState("");
   const [changesSummary, setChangesSummary] = useState<string[] | null>(null);
   const [refineError, setRefineError] = useState("");
+  const [refineCount, setRefineCount] = useState(0);
+  const [finished, setFinished] = useState(false);
 
   function applyExample(ex: Example) {
     setInput(ex.input);
     setAdditionalContext("");
     if (ex.suggestedFeedback) setFeedback(ex.suggestedFeedback);
+  }
+
+  /** Populates the (still-editable) feedback box from a Critic recommendation. */
+  function applyRecommendation(text: string) {
+    setFeedback(text);
+    setFinished(false);
   }
 
   function resetResultState() {
@@ -85,6 +93,8 @@ export default function Home() {
     setCritique(null);
     setChangesSummary(null);
     setRefineError("");
+    setRefineCount(0);
+    setFinished(false);
   }
 
   async function handleGenerate() {
@@ -129,6 +139,7 @@ export default function Home() {
     if (!feedback.trim() || !mindMap || !contextAnalysis || !exploration || !assumptionChallenge || !critique) return;
     setPhase("refining");
     setRefineError("");
+    setFinished(false);
 
     try {
       const res = await fetch("/api/refine", {
@@ -141,6 +152,10 @@ export default function Home() {
           exploration,
           assumptionChallenge,
           previousMindMap: mindMap,
+          // Always the MOST RECENT critique (from the last generate or
+          // refine response), never the original Week 1 one - `critique`
+          // state is updated below on every successful refine, so a third
+          // round of feedback reviews against the second critique, and so on.
           previousCritique: critique,
           feedback,
         }),
@@ -155,6 +170,8 @@ export default function Home() {
       }
       setMindMap(data.mindMap);
       setChangesSummary(data.changesSummary);
+      setCritique(data.critique);
+      setRefineCount((n) => n + 1);
       setFeedback("");
       setPhase("results");
     } catch {
@@ -271,7 +288,11 @@ export default function Home() {
             {changesSummary && changesSummary.length > 0 && (
               <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/40">
                 <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-                  Refined based on your feedback
+                  Reported changes from Refinement Agent
+                </p>
+                <p className="mb-2 text-xs text-emerald-700/80 dark:text-emerald-300/80">
+                  What the AI says it changed, in its own words — not independently verified. See the Critic
+                  review below for an independent check of the map that actually resulted.
                 </p>
                 <ul className="flex flex-col gap-0.5">
                   {changesSummary.map((c, i) => (
@@ -290,6 +311,46 @@ export default function Home() {
             subtitle="Alternative perspectives and options discovered beyond the obvious framing."
             icon="🧭"
           >
+            <div className="mb-5 flex flex-wrap items-center gap-2">
+              {exploration.usedWebSearch ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                  🔍 Grounded in live web search
+                  {exploration.sourcesUsed.length > 0 ? ` (${exploration.sourcesUsed.length} source(s))` : ""}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600 dark:bg-ink-800 dark:text-slate-300">
+                  🧠 Based on the model&apos;s own knowledge — live search was unavailable this run
+                </span>
+              )}
+            </div>
+
+            {exploration.perspectives.length > 0 && (
+              <div className="mb-6">
+                <h3 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  Perspectives considered
+                </h3>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {exploration.perspectives.map((p, i) => (
+                    <div
+                      key={i}
+                      className="rounded-xl border border-brand-200 bg-brand-50/50 p-3 dark:border-brand-900 dark:bg-brand-950/20"
+                    >
+                      <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">
+                        {p.lens}
+                      </p>
+                      <ul className="flex flex-col gap-1">
+                        {p.findings.map((f, j) => (
+                          <li key={j} className="text-sm text-slate-600 dark:text-slate-300">
+                            • {f}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="grid gap-5 sm:grid-cols-2">
               <ListBlock heading="Alternative perspectives" items={exploration.alternativePerspectives} />
               <ListBlock heading="Additional stakeholders" items={exploration.additionalStakeholders} />
@@ -331,18 +392,64 @@ export default function Home() {
             </div>
           </Section>
 
-          <Section title="Critique" subtitle="How the map holds up against the original problem." icon="🔬">
+          <Section
+            title={refineCount > 0 ? "Post-refinement Critic review" : "Critique"}
+            subtitle={
+              refineCount > 0
+                ? "An independent review of the map that actually resulted from your last refinement — re-examined from scratch by the Critic agent, not based on the Refinement Agent's own report above."
+                : "How the map holds up against the original problem."
+            }
+            icon="🔬"
+          >
             <div className="grid gap-5 sm:grid-cols-2">
               <ListBlock heading="Strengths" items={critique.strengths} tone="positive" />
               <ListBlock heading="Gaps" items={critique.gaps} tone="danger" />
               <ListBlock heading="Weak branches" items={critique.weakBranches} tone="warning" />
               <ListBlock heading="Duplicate content" items={critique.duplicates} tone="warning" />
               <div className="sm:col-span-2">
-                <ListBlock heading="Recommended changes" items={critique.recommendedChanges} />
+                <h3 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  Recommended changes
+                </h3>
+                {critique.recommendedChanges.length === 0 ? (
+                  <p className="text-sm italic text-slate-400">None identified.</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {critique.recommendedChanges.map((rec, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        disabled={isBusy}
+                        onClick={() => applyRecommendation(rec)}
+                        title="Click to use this as your refinement feedback (you can edit it first)"
+                        className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-left text-sm text-slate-600 transition hover:border-brand-400 hover:bg-brand-50 hover:text-brand-800 disabled:opacity-50 dark:border-slate-700 dark:bg-ink-800 dark:text-slate-300 dark:hover:border-brand-700 dark:hover:bg-brand-950/30 dark:hover:text-brand-200"
+                      >
+                        <span className="mt-0.5 flex-none text-current/50">✍️</span>
+                        <span>{rec}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </Section>
 
+          {finished ? (
+            <Section title="Refine with Your Feedback" icon="✍️">
+              <div className="flex flex-col items-start gap-3">
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  You marked this map as finished. Nice work! You can still refine it further if you change
+                  your mind.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setFinished(false)}
+                  className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-brand-400 hover:text-brand-700 dark:border-slate-700 dark:text-slate-300"
+                >
+                  Refine anyway
+                </button>
+              </div>
+            </Section>
+          ) : (
           <Section title="Refine with Your Feedback" icon="✍️">
             <div className="flex flex-col gap-3">
               <label className="text-sm font-medium text-slate-600 dark:text-slate-300">
@@ -362,16 +469,28 @@ export default function Home() {
                   {refineError}
                 </p>
               )}
-              <button
-                onClick={handleRefine}
-                disabled={isBusy || !feedback.trim()}
-                className="inline-flex items-center justify-center gap-2 self-start rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {phase === "refining" ? <Spinner /> : null}
-                {phase === "refining" ? "Refining…" : "Refine Mind Map"}
-              </button>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={handleRefine}
+                  disabled={isBusy || !feedback.trim()}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {phase === "refining" ? <Spinner /> : null}
+                  {phase === "refining" ? "Refining…" : "Refine Mind Map"}
+                </button>
+                <span className="text-xs text-slate-400">or</span>
+                <button
+                  type="button"
+                  onClick={() => setFinished(true)}
+                  disabled={isBusy}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:border-emerald-400 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
+                >
+                  ✓ I&apos;m happy with this map — Finish
+                </button>
+              </div>
             </div>
           </Section>
+          )}
 
           <AgentTrace trace={trace} />
         </>
